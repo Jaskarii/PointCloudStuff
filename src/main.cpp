@@ -1,12 +1,15 @@
 #include <iostream>
-#include <string> 
+#include <string>
 #include <pcl/io/pcd_io.h>
 #include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/features/feature.h>
+#include <pcl/features/principal_curvatures.h>
+#include <pcl/common/pca.h>
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/common/transforms.h>
-#include <pcl/common/pca.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/segmentation/region_growing.h>
@@ -41,10 +44,11 @@ int main (int argc, char** argv)
   for (size_t i = 0; i < trees.size(); i++)
   {
       rotate_tree_to_z_axis(trees[i]);
-      //filter_branches(trees[i],0.04,1,5);
+      filter_branches(trees[i],0.02,1,5);
       std::string name = "tree ";
       name += std::to_string(i);
-
+      
+      calculate_curvature(trees[i]);
       pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> color_handler (trees[i], 0, 255, 0);
       viewer.addPointCloud<pcl::PointXYZ> (trees[i], color_handler, name);
   }
@@ -116,6 +120,7 @@ std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> filter_trees_by_height(
 
 void rotate_tree_to_z_axis(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud)
 {
+  int num_top_points = 10;
   // Filter the point cloud using a voxel grid filter to reduce noise
   pcl::VoxelGrid<pcl::PointXYZ> vg;
   vg.setInputCloud(cloud);
@@ -142,7 +147,7 @@ void rotate_tree_to_z_axis(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud)
   for (int i = 0; i < num_top_points; i++) {
     top_points->push_back(filtered_cloud->points[i]);
   }
-  for (int i = filtered_cloud->size() - 1; i >= filtered_cloud->size() - num_bottom_points; i--) {
+  for (int i = filtered_cloud->size() - 1; i >= filtered_cloud->size() - num_top_points; i--) {
     bottom_points->push_back(filtered_cloud->points[i]);
   }
   Eigen::Vector3f centerline = Eigen::Vector3f::Zero();
@@ -206,4 +211,38 @@ void filter_branches(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, double box_widt
     
   }
   
+}
+
+void calculate_curvature(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
+{
+    // Compute surface normals using OpenMP
+    pcl::NormalEstimationOMP<pcl::PointXYZ, pcl::Normal> ne;
+    ne.setInputCloud(cloud);
+    ne.setRadiusSearch(1.5);  // Set radius of the sphere for neighborhood search
+    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+    ne.compute(*normals);
+
+    // Compute principal curvatures
+    pcl::PrincipalCurvaturesEstimation<pcl::PointXYZ, pcl::Normal, pcl::PrincipalCurvatures> pce;
+    pce.setInputCloud(cloud);
+    pce.setInputNormals(normals);
+    pcl::IndicesPtr indices(new std::vector<int>);
+    indices->resize(cloud->size());
+    for (int i = 0; i < cloud->size(); i++) {
+        (*indices)[i] = i;
+    }
+    pce.setIndices(indices);
+    pce.setRadiusSearch(1.5);  // Set radius of the sphere for neighborhood search
+    pcl::PointCloud<pcl::PrincipalCurvatures>::Ptr principal_curvatures(new pcl::PointCloud<pcl::PrincipalCurvatures>);
+    pce.compute(*principal_curvatures);
+
+    // Compute the mean curvature
+    double mean_curvature = 0;
+    for (int i = 0; i < cloud->size(); i++) {
+        mean_curvature += principal_curvatures->at(i).pc1 + principal_curvatures->at(i).pc2;
+    }
+    mean_curvature /= cloud->size();
+
+    std::cout << "Mean curvature: " << mean_curvature << std::endl;
+
 }

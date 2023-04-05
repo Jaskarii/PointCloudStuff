@@ -20,3 +20,6 @@ void rotate_tree_to_z_axis(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud);
 
 //Filters Branches out of trees
 void filter_branches(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, double box_width, double box_height, int min_neighbors);
+
+//Calculate curvature of a given tree
+void calculate_curvature(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud);
